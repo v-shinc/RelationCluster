@@ -20,7 +20,7 @@ class TensorDecompAdapter:
          NotImplementedError
 
 class TensorCluster:
-    dm = dict(cp_als = 'cp_als')
+    dm = dict(cp_als = 'cp_als',none=None)
     cm = dict(kmeans = 'KMeans',
               miniBatchKmeans = 'MiniBatchKMeans')
 
@@ -37,7 +37,7 @@ class TensorCluster:
             raise ValueError('Expected 3-order tensor, got {}-order'.format(ndim))
         self.__t3 = t3
 
-    def __init__(self,n_cluster,tensor3,rels,dec,clu,decparams,cluparams):
+    def __init__(self,n_cluster,tensor3,rels,dec,clu,decparams,cluparams,result_dir):
 
         self.n_cluster = n_cluster
         self.tensor3 = tensor3
@@ -46,7 +46,9 @@ class TensorCluster:
         self.clu_method = clu
         self.decompo_param(**decparams)
         self.cluster_param(**cluparams)
-
+        if not os.path.exists(result_dir):
+            os.mkdir(result_dir)
+        self.result_dir = result_dir
 
 
     __decompo_param = {}
@@ -68,11 +70,14 @@ class TensorCluster:
 
     def decompostion(self,params):
         t0 = time.time()
-        print 'start tensor decomposing \n'
-        rank = params.pop('rank',10)
+        print 'start tensor decomposing'
+        self.rank = params.pop('rank',10)
+        print "{0}\ndecomposition parameters\n{0}".format('='*len('decomposition parameters'))
+        for k,v in params.items():
+            print k,'=',v
         dt = sktensor.dtensor(self.tensor3)
         method = getattr(TensorDecompAdapter,self.dec_method)
-        P,fit,itr,exectimes = method(dt,rank,**params)
+        P,fit,itr,exectimes = method(dt,self.rank,**params)
         if isinstance(P,sktensor.ktensor):
             P = P.toarray()
         print 'It costs {} s to decompose the tensor'.format((time.time()-t0))
@@ -81,7 +86,7 @@ class TensorCluster:
 
     def cluster(self,t3,params):
         t0 = time.time()
-        print 'start clustering \n'
+        print 'start clustering'
         sz = t3.shape
         t3 = t3.reshape(sz[0]*sz[1],sz[2]).T
         cluster = getattr(skclus,self.clu_method)(**params)
@@ -92,42 +97,73 @@ class TensorCluster:
 
 
 
-    def save_cluster_result(self,result,outdir):
+    def save_cluster_result(self,result):
         t0 = time.time()
         clusters = [[] for i in range(self.n_cluster)]
         for i,lab in enumerate(result.labels_):
             clusters[lab].append(self.rels[i])
         print "save results to file"
-        if not os.path.exists(outdir):
-            os.makedirs(outdir)
+        result_dir = os.path.join(self.result_dir,'clusterResult')
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
         for i in range(self.n_cluster):
-            with open(os.path.join(outdir,'c'+str(i)),'w') as fid:
+            with open(os.path.join(result_dir,'c'+str(i)),'w') as fid:
                 for w in clusters[i]:
                     fid.write(w+"\n")
         print "It costs {:0.2f} s to save results ".format((time.time()-t0))
 
+    def save_tc_result(self,t3):
+        path = os.path.join(self.result_dir,'tc{}'.format(self.rank))
+        np.save(path,t3)
 
-    def run(self):
+    @property
+    def quick(self):
+        return False if self.dec_method else True
+
+    def run(self,save_tc_res=False):
+        if self.quick:
+            self.quick_run()
+            return
         print "start running"
         P,fit,itr,exectimes = self.decompostion(self.__decompo_param)
         print "fit = {}\n itr = {}\n execute time = {} s\n".format(fit,itr,exectimes)
+        if save_tc_res:
+            self.save_tc_result(P)
         result = self.cluster(P,self.__cluster_param)
-        return result
+        self.save_cluster_result(result)
+
+    '''
+    clustering relations without tensor decomposition
+    '''
+    def quick_run(self):
+        print "start running"
+        result = self.cluster(self.tensor3,self.__cluster_param)
+        self.save_cluster_result(result)
+
 
 if __name__ == "__main__":
     parse = argparse.ArgumentParser()
     parse.add_argument('-i','--input',help="path of tensor file")
     parse.add_argument('-r','--rels',help="path of relations file")
-    # parse.add_argument('-o','--output',help="directory to store clustering result")
+    # parse.add_argument('-o','--output',help="directory to store all results")
     args = parse.parse_args()
     t3 = np.load(args.input)
     with open(args.rels) as fid:
         rels = [r for r in fid]
 
-    tc1 = TensorCluster(15,t3,rels,
+    tc1 = TensorCluster(50,t3,rels,
                         TensorCluster.dm['cp_als'],
                         TensorCluster.cm['kmeans'],
                         dict(rank=10,init='random'),
-                        dict(precompute_distances=True,verbose=0))
-    result = tc1.run()
-    tc1.save_cluster_result(result,'result1')
+                        dict(precompute_distances=True,verbose=0),
+                        'cp10_kmeans50')
+    result = tc1.run(save_tc_res=True)
+
+    # tc2 = TensorCluster(50,t3,rels,
+    #                     TensorCluster.dm['none'],
+    #                     TensorCluster.cm['kmeans'],
+    #                     dict(rank=10,init='random'),
+    #                     dict(precompute_distances=True,verbose=0),
+    #                     'cp10_kmeans50')
+    #
+    # tc2.run()
