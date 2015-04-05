@@ -308,8 +308,8 @@ def main():
             prop_out.write("%s\n" % p)
         prop_out.close()
 
-main()
-    # paths =["D:\\Source Code\RelationCluster\\test.txt"]
+# main()
+    # paths =["D:\\Source Code\\RelationCluster\\test.txt"]
     # paths = [test_path+"xaa"]
     # paths = allPaths(test_path)
     # kb, isEnts, isRels = loadKBFromMulFile(paths)
@@ -327,3 +327,28 @@ main()
 # select_features(test_path+"/xaa")
 # kbSlices = [os.path.join(test_path,p) for p in os.listdir(test_path)]
 # print numOfRelationsAndProperties(kbSlices)
+class KBTriple(object):
+    import re
+    # p = re.compile(r"(?P<e1><[^>]+>)[ ]+(?P<r><[^>]+>)[ ]+(?P<e2>(<[^>]+>)|(\"[^\"]+\"))")
+    p = re.compile(r"(?P<e1><[^>]+>)[ ]+(?P<r><[^>]+>)[ ]+(?P<e2><[^>]+>)")  # ignore <entity property value>
+    tail = lambda self,url : unicode(os.path.basename(url)[:-1], 'utf8')
+    def __init__(self,source):
+        self.source = source
+    def parse(self,line):
+        m = self.p.match(line)
+        if m != None:
+            e1,r,e2 = m.group('e1'),m.group('r'),m.group('e2')
+
+            return [self.tail(e1),self.tail(r),self.tail(e2)]
+    def __iter__(self):
+
+
+        # If it didn't work like a file, use it as a string filename
+        with open(self.source) as fin:
+            for line in fin:
+                t3 = self.parse(line)
+                if t3!=None:
+                    yield t3
+
+for item in KBTriple('D:\\Study\\kb\\data\\dbpedia-mini\\xaa'):
+    print item
